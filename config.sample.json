@@ -1,0 +1,45 @@
+{
+  "my_sites": [
+    "teiji-jidouka.com"
+  ],
+  "site": "定時で帰る自動化",
+  "speaker": {
+    "name": "ズボラ係長",
+    "persona": "めんどくさがりの会社員。ポップに話し、見る人を責めない。",
+    "first_person": "私",
+    "faces": {
+      "normal": "assets/avatar.svg",
+      "komari": "assets/avatar-komari.svg",
+      "doya": "assets/avatar-doya.svg"
+    }
+  },
+  "colors": {
+    "paper": "#FBF9F4",
+    "ink": "#23272F",
+    "soft": "#5A5F69",
+    "rule": "#E3DED2",
+    "accent": "#D9622B",
+    "marker": "#FFD8A6"
+  },
+  "voice": {
+    "engine": "say",
+    "name": "Kyoko",
+    "rate": 205
+  },
+  "reading": {
+    "Claude Code": "クロードコード",
+    "Claude": "クロード",
+    "Desktop": "デスクトップ",
+    "routines": "ルーティンズ",
+    "/loop": "ループ",
+    "Run now": "ランナウ",
+    "Mac": "マック",
+    "Windows": "ウィンドウズ",
+    "GitHub": "ギットハブ",
+    "CSV": "シーエスブイ",
+    "PDF": "ピーディーエフ",
+    "AI": "エーアイ",
+    "hooks": "フックス",
+    "worktree": "ワークツリー"
+  }
+}

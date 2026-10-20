@@ -1,0 +1,17 @@
+{
+  "name": "tatedouga",
+  "owner": {
+    "name": "ズボラ係長"
+  },
+  "metadata": {
+    "description": "ブログ記事のURLを1つ入れると、話し手が解説する1分の縦動画（字幕・声つき）がMacの中でできる"
+  },
+  "plugins": [
+    {
+      "name": "tatedouga",
+      "source": "./",
+      "description": "ブログ記事のURLを1つ入れると、話し手が解説する1分の縦動画（字幕・声つき）がMacの中でできる",
+      "version": "1.0.0"
+    }
+  ]
+}

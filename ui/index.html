@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>記事から縦動画</title>
+<style>
+:root{--paper:#FBF9F4;--ink:#23272F;--soft:#5A5F69;--rule:#E3DED2;--accent:#D9622B;--marker:#FFD8A6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN",sans-serif}
+main{max-width:1100px;margin:0 auto;padding:28px 20px 60px}
+h1{font-size:26px;margin:0 0 4px}
+.lead{color:var(--soft);margin:0 0 22px;font-size:14px}
+.grid{display:grid;grid-template-columns:1fr 360px;gap:22px}
+@media (max-width:860px){.grid{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid var(--rule);border-radius:12px;padding:18px 20px;margin-bottom:18px}
+.card h2{font-size:16px;margin:0 0 12px}
+label{display:block;font-size:13px;color:var(--soft);margin:10px 0 4px}
+input[type=text],input[type=url],select,textarea{width:100%;font:inherit;font-size:15px;padding:9px 11px;border:1px solid var(--rule);border-radius:8px;background:#fff}
+textarea{min-height:64px;resize:vertical}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+button{font:inherit;font-weight:700;border:0;border-radius:8px;padding:11px 18px;cursor:pointer;background:var(--accent);color:#fff}
+button.sub{background:#fff;color:var(--ink);border:1px solid var(--rule)}
+button:disabled{opacity:.5;cursor:default}
+.check{font-size:14px;display:flex;gap:6px;align-items:center;margin-top:10px;color:var(--soft)}
+.face{width:64px;height:64px;border-radius:50%;background:#FFE8D4;object-fit:cover;border:1px solid var(--rule)}
+.steps{list-style:none;padding:0;margin:0;font-size:14px}
+.steps li{padding:4px 0;color:var(--soft)}
+.steps li.now{color:var(--ink);font-weight:700}
+.steps li.ok::before{content:"✓ ";color:#2e7d32}
+video{width:100%;max-height:620px;border-radius:10px;background:#000}
+.scene{border-top:1px solid var(--rule);padding:12px 0}
+.scene:first-child{border-top:0}
+.scene b{font-size:13px;color:var(--accent)}
+.note{font-size:12px;color:var(--soft);margin-top:8px;line-height:1.6}
+.err{color:#B3261E;font-weight:700}
+pre{white-space:pre-wrap;font-size:12px;color:var(--soft);max-height:140px;overflow:auto;background:var(--paper);padding:8px;border-radius:6px}
+</style>
+</head>
+<body>
+<main>
+<h1>記事から縦動画</h1>
+<p class="lead">ブログ記事のURLを入れると、話し手が解説する1分の縦動画（字幕・声つき）ができます。このMacの中だけで動きます。自分の記事のURLで使ってください。</p>
+
+<div class="grid">
+<div>
+	<div class="card">
+		<h2>1. 記事のURL</h2>
+		<input id="url" type="url" placeholder="https://example.com/your-post/">
+		<label class="check"><input id="noai" type="checkbox"> Claude Code を使わずに作る（見出しと太字の文から台本を作る。記事の文章がパソコンの外に出ない）</label>
+		<label class="check"><input id="noimg" type="checkbox"> 記事の画像を使わない（文字と話し手だけの動画）</label>
+		<p id="warn" class="note err" hidden></p>
+		<div class="row" style="margin-top:14px"><button id="go">動画を作る</button><span id="msg" class="note"></span></div>
+	</div>
+
+	<div class="card" id="scriptCard" hidden>
+		<h2>3. 台本（直して作り直せます）</h2>
+		<div id="scenes"></div>
+		<div class="row" style="margin-top:10px"><button id="remake" class="sub">この台本で作り直す</button></div>
+		<p class="note">「話す文」が声と字幕に、「大きく出す文字」が画面の真ん中に出ます。</p>
+	</div>
+</div>
+
+<div>
+	<div class="card">
+		<h2>2. 話し手と声</h2>
+		<div class="row"><img id="faceImg" class="face" alt="話し手の顔"><div style="flex:1"><label for="name" style="margin-top:0">名前</label><input id="name" type="text"></div></div>
+		<label for="faceFile">顔の画像（PNG・JPEG・SVG。変えるときだけ）</label>
+		<input id="faceFile" type="file" accept="image/png,image/jpeg,image/svg+xml">
+		<label for="fp">一人称</label><input id="fp" type="text" placeholder="私">
+		<label for="persona">話し方（Claude Code で台本を作るときに使う）</label><textarea id="persona"></textarea>
+		<label for="voice">声（パソコンに入っている読み上げの声）</label><select id="voice"></select>
+		<label for="site">ブログ名（画面の上に出る）</label><input id="site" type="text">
+		<label for="mysites">自分のサイト（ドメイン。複数なら空白で区切る）</label><input id="mysites" type="text" placeholder="example.com">
+		<div class="row" style="margin-top:12px"><button id="save" class="sub">設定を保存</button><span id="saved" class="note"></span></div>
+	</div>
+
+	<div class="card">
+		<h2>進み具合</h2>
+		<ul class="steps" id="steps"></ul>
+		<pre id="log" hidden></pre>
+	</div>
+
+	<div class="card" id="videoCard" hidden>
+		<h2>できた動画</h2>
+		<video id="video" controls playsinline></video>
+		<div class="row" style="margin-top:10px"><a id="dl" download><button class="sub">ダウンロード</button></a></div>
+		<p class="note"><b>投稿・共有の前に確かめること</b><br>
+		□ 自分の記事か（他人の記事は、自分で見るだけ）<br>
+		□ 画像は自分で撮った・作ったものか。素材サイトの画像なら、動画に使ってよい条件か<br>
+		□ 人の顔や、他社の画面が写っていないか<br>
+		□ 記事と違うこと・記事に無いことを言っていないか</p>
+	</div>
+</div>
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const STEPS = ['記事を取りました', '台本ができました', '声', '画面', '動画をつないでいます'];
+let cfg, faceData = null, lastUrl = '';
+
+async function loadCfg() {
+	const r = await (await fetch('/api/config')).json(); cfg = r.cfg;
+	$('name').value = cfg.speaker.name; $('fp').value = cfg.speaker.first_person || ''; $('persona').value = cfg.speaker.persona || '';
+	$('site').value = cfg.site || ''; $('mysites').value = (cfg.my_sites || []).join(' ');
+	const cur = r.voices.engine === 'windows' ? (cfg.voice.windows_name || '') : (cfg.voice.name || 'Kyoko');
+	$('voice').innerHTML = r.voices.say.map(v => `<option ${v === cur ? 'selected' : ''}>${v}</option>`).join('');
+	$('faceImg').src = '/api/face?x=' + Date.now();
+}
+$('faceFile').onchange = e => {
+	const f = e.target.files[0]; if (!f) return;
+	const rd = new FileReader(); rd.onload = () => { faceData = rd.result; $('faceImg').src = faceData; }; rd.readAsDataURL(f);
+};
+$('save').onclick = async () => {
+	const r = await (await fetch('/api/config', { method: 'POST', body: JSON.stringify({ name: $('name').value, first_person: $('fp').value, persona: $('persona').value, site: $('site').value, my_sites: $('mysites').value, voice: { engine: 'say', name: $('voice').value }, face: faceData }) })).json();
+	$('saved').textContent = r.ok ? '保存しました' : r.error; faceData = null;
+};
+
+function showSteps(lines, done, err) {
+	const last = lines.filter(l => l.startsWith('STEP ')).map(l => l.slice(5));
+	$('steps').innerHTML = STEPS.map((s, i) => {
+		const hit = [...last].reverse().find(l => l.startsWith(s));
+		const passed = last.some(l => STEPS.slice(i + 1).some(n => l.startsWith(n))) || (done && !err);
+		return `<li class="${passed ? 'ok' : hit ? 'now' : ''}">${hit || s}</li>`;
+	}).join('');
+	const w = lines.find(l => l.startsWith('WARN ')); $('warn').hidden = !w; if (w) $('warn').textContent = w.slice(5);
+	const other = lines.filter(l => !l.startsWith('STEP ') && !l.startsWith('DONE ') && !l.startsWith('WARN '));
+	$('log').hidden = !other.length || (!err && done); $('log').textContent = other.join('\n');
+}
+
+async function run(body) {
+	$('go').disabled = $('remake').disabled = true; $('msg').textContent = '作っています（1分ほど）'; $('msg').className = 'note';
+	const r = await (await fetch('/api/make', { method: 'POST', body: JSON.stringify(body) })).json();
+	if (r.error) { $('msg').textContent = r.error; $('msg').className = 'note err'; $('go').disabled = $('remake').disabled = false; return; }
+	for (;;) {
+		await new Promise(t => setTimeout(t, 1000));
+		const j = await (await fetch('/api/job?id=' + r.id)).json();
+		showSteps(j.lines, j.done, j.error);
+		if (!j.done) continue;
+		$('go').disabled = $('remake').disabled = false;
+		if (j.error) { $('msg').textContent = j.error; $('msg').className = 'note err'; return; }
+		$('msg').textContent = 'できました';
+		const src = `/out/${encodeURIComponent(j.slug)}/${encodeURIComponent(j.slug)}.mp4?x=${Date.now()}`;
+		$('video').src = src; $('dl').href = src; $('dl').download = j.slug + '.mp4'; $('videoCard').hidden = false;
+		if (j.script) showScript(j.script.scenes);
+		return;
+	}
+}
+function showScript(scenes) {
+	$('scriptCard').hidden = false;
+	$('scenes').innerHTML = scenes.map((s, i) => `<div class="scene" data-i="${i}" data-img="${s.img ?? ''}" data-face="${s.face || 'normal'}">
+<b>場面${i + 1}</b><label>大きく出す文字</label><input type="text" class="show" value="${s.show.replace(/"/g, '&quot;')}">
+<label>話す文</label><textarea class="say">${s.say.replace(/</g, '&lt;')}</textarea></div>`).join('');
+}
+$('go').onclick = () => { lastUrl = $('url').value.trim(); run({ url: lastUrl, noAi: $('noai').checked, noImages: $('noimg').checked }); };
+$('remake').onclick = () => {
+	const scenes = [...document.querySelectorAll('.scene')].map(d => ({ show: d.querySelector('.show').value, say: d.querySelector('.say').value, face: d.dataset.face, img: d.dataset.img === '' ? null : Number(d.dataset.img) }));
+	run({ url: lastUrl || $('url').value.trim(), scenes });
+};
+showSteps([], false); loadCfg();
+</script>
+</body>
+</html>

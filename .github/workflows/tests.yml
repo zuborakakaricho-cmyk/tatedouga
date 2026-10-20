@@ -1,0 +1,51 @@
+name: tests
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: OSの道具（.github/apt-packages.txt に1行1つ。無ければ飛ばす）
+        run: |
+          if [ -f .github/apt-packages.txt ]; then
+            sudo apt-get update && xargs -a .github/apt-packages.txt sudo apt-get install -y
+          fi
+      - name: Pythonのテスト
+        run: |
+          python -m pip install pytest
+          if [ -f requirements-test.txt ]; then python -m pip install -r requirements-test.txt; fi
+          python -m pytest -q tests
+      - uses: actions/setup-node@v4
+        if: hashFiles('package.json') != ''
+        with:
+          node-version: "22"
+      - name: Nodeのテスト（package.json があるときだけ）
+        if: hashFiles('package.json') != ''
+        run: npm ci && npm test
+
+  windows:
+    # Windows（試験的）：記事を取る・台本（Claudeなし）・声・画面・動画をつなぐ、まで通るか
+    # 借りるWindowsには日本語の声が無いので、声は英語の声で確かめる
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npx playwright install chromium
+      - run: choco install ffmpeg -y --no-progress
+      - name: 点検（日本語の声が無いので、ここは失敗してもよい）
+        run: node doctor.mjs
+        continue-on-error: true
+      - name: 動画を作る
+        run: node make.mjs https://teiji-jidouka.com/claude-code-schedule/ --no-ai --out out-ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-video
+          path: out-ci/**/*.mp4

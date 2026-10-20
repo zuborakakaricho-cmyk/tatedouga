@@ -1,0 +1,17 @@
+{
+  "name": "tatedouga",
+  "version": "1.0.0",
+  "description": "ブログ記事のURLを1つ入れると、話し手が解説する1分の縦動画（字幕・声つき）がMacの中でできる",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "start": "node server.mjs",
+    "make": "node make.mjs",
+    "doctor": "node doctor.mjs",
+    "test": "node --test tests/make.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.55.0"
+  }
+}
