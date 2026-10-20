@@ -43,6 +43,9 @@ jobs:
       - name: 点検（日本語の声が無いので、ここは失敗してもよい）
         run: node doctor.mjs
         continue-on-error: true
+      - name: 入っている読み上げの声
+        shell: powershell
+        run: Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).GetInstalledVoices() | ForEach-Object { $_.VoiceInfo.Name + ' ' + $_.VoiceInfo.Culture.Name }
       - name: 動画を作る
         run: node make.mjs https://teiji-jidouka.com/claude-code-schedule/ --no-ai --out out-ci
       - uses: actions/upload-artifact@v4

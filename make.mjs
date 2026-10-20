@@ -124,7 +124,14 @@ async function speak(text, file) {
 	} else {
 		execFileSync('say', ['-v', v.name || 'Kyoko', '-r', String(v.rate || 205), '-o', file, '--file-format=WAVE', '--data-format=LEI16@22050', text]);
 	}
-	return parseFloat(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], { encoding: 'utf8' }));
+	let sec = NaN;
+	try { sec = parseFloat(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], { encoding: 'utf8' })); } catch {}
+	if (!(sec > 0)) {   // 声が作れなかったとき（読み上げの声が入っていないパソコンなど）は、字幕だけ読める長さの無音にする
+		sec = Math.max(2, [...text].length * 0.14);
+		console.log('WARN 声を作れなかったので、この場面は無音にしました（読み上げの声が入っているか node doctor.mjs で確かめてください）');
+		execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=22050:cl=mono', '-t', String(sec), file]);
+	}
+	return sec;
 }
 for (const [i, s] of scenes.entries()) { s.sec = (await speak(reading(s.say), join(out, 'scene', `${i}.wav`))) + 0.35; console.log(`STEP 声 ${i + 1}/${scenes.length}`); }
 
