@@ -70,14 +70,15 @@ const images = [...clean.matchAll(/<img[^>]+>|<video[\s\S]*?<\/video>/g)].map(m 
 	// 画像は、記事と同じサイトに置いてあるものだけ使う（他のサイトの画像は、動画に使ってよいかわからない）
 	.filter(m => { try { return new URL(m.src, url).host === new URL(url).host; } catch { return false; } })
 	.filter(m => m.video || !args.includes('--no-images'));
-const skip = /よくある質問|まとめ|出典|参考|関連|目次|書いた人|プロフィール/;
+// 「まとめて選ぶと」のような見出しは飛ばさない
+const skip = /よくある質問|まとめ(?![てたるれ])|出典|参考|関連|目次|書いた人|プロフィール/;
 const sections = [...clean.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>([\s\S]*?)(?=<h2|$)/g)].map(m => {
 	const head = strip(m[1]);
 	const ans = strip((m[2].match(/<strong[^>]*>([\s\S]*?)<\/strong>/) || m[2].match(/<p[^>]*>([\s\S]*?)<\/p>/) || ['', ''])[1]);
 	const img = images.findIndex(im => im.at > m.index && im.at < m.index + m[0].length);
 	return { head, ans, img: img >= 0 ? img : null };
 }).filter(s => s.head && !skip.test(s.head) && s.ans);
-const summary = (() => { const m = clean.match(/<h2[^>]*>[^<]*まとめ[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>/); return m ? strip(m[1]) : ''; })();
+const summary = (() => { const m = clean.match(/<h2[^>]*>[^<]*まとめ(?![てたるれ])[\s\S]*?<strong[^>]*>([\s\S]*?)<\/strong>/); return m ? strip(m[1]) : ''; })();
 
 // 読み上げ用の読み替え（英字の名前など）
 const reading = s => Object.entries(cfg.reading || {}).reduce((t, [k, v]) => t.split(k).join(v), s);
@@ -104,7 +105,7 @@ function aiScript() {
 数字・名前・手順は記事に書いてあるものだけを使う。記事に無いことは言わない。引用（他の人の文章）は使わない。
 使える画像（番号：説明）：
 ${images.map((m, i) => `${i}：${m.video ? '【動画】' : ''}${m.alt.slice(0, 120)}`).join('\n')}
-${images.some(m => m.video) ? '【動画】と付いたものは、その場面のあいだ早送りで流れる。動画の中身を話す場面で1回使う（imgにその番号）。その場面の say は、動画で何が起きているかを話す。' : ''}
+${images.some(m => m.video) ? '【動画】と付いたものは、その場面のあいだ早送りで流れる。【動画】が何本あっても、1本ずつ別の場面で使う（imgにその番号。同じ動画を2回使わない）。その場面の say は、動画で何が起きているかを話す。' : ''}
 題名：${title}
 本文：${text}`;
 	const res = execFileSync('claude', ['-p', prompt, '--output-format', 'text'], { encoding: 'utf8', maxBuffer: 1 << 24, shell: isWin });
@@ -166,6 +167,8 @@ body{font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Yu 
 .media img+.big,.media .vidbox+.big{font-size:62px}
 .vidbox{display:flex;flex-direction:column;align-items:center;gap:14px}
 .vid{background:#000}
+.media.side{flex-direction:row;gap:40px}
+.media.side .big{flex:1;font-size:56px;text-align:left;text-wrap:balance}
 .speed{font-size:30px;font-weight:700;color:var(--soft)}
 .big mark{background:linear-gradient(transparent 62%,var(--marker) 62%);color:inherit}
 .cap{position:absolute;left:60px;right:270px;bottom:190px;min-height:330px;display:flex;align-items:center;font-size:46px;font-weight:700;line-height:1.5;background:#fff;border:2px solid var(--rule);border-radius:18px;padding:26px 30px}
@@ -188,9 +191,11 @@ for (const [i, s] of scenes.entries()) {
 	if (!existsSync(file)) writeFileSync(file, Buffer.from(await (await fetch(new URL(m.src, url))).arrayBuffer()));
 	const j = JSON.parse(probe(file));
 	const W = j.streams[0].width, H = j.streams[0].height, dur = parseFloat(j.format.duration);
-	const w = Math.round(Math.min(960, 600 * W / H) / 2) * 2, h = Math.round(w * H / W / 2) * 2;
+	// 横長は幅いっぱい（高さ600まで）。縦長は高さを取って左に置き、要点は右に並べる
+	const tall = H > W;
+	const w = Math.round(Math.min(tall ? 560 : 960, (tall ? 940 : 600) * W / H) / 2) * 2, h = Math.round(w * H / W / 2) * 2;
 	const speed = Math.min(Math.max(dur / s.sec, 1), cfg.video_max_speed || 6);
-	s.video = { file, w, h, speed, use: s.sec * speed };   // use＝元の動画から使う秒数
+	s.video = { file, w, h, tall, speed, use: s.sec * speed };   // use＝元の動画から使う秒数
 	console.log(`STEP 動画 ${i + 1}場面目：${dur.toFixed(1)}秒 → ${s.sec.toFixed(1)}秒（${speed.toFixed(1)}倍速）`);
 }
 
@@ -202,7 +207,7 @@ for (const [i, s] of scenes.entries()) {
 	await pg.setContent(`<!doctype html><meta charset="utf-8"><style>${css}</style><div class="wrap">
 <div class="top"><b>${i + 1}/${scenes.length}</b>${esc(cfg.site || '')}</div>
 <div class="title">${esc(main)}</div>
-<div class="media">${im}<div class="big"><mark>${esc(s.show)}</mark></div></div>
+<div class="media${s.video?.tall ? ' side' : ''}">${im}<div class="big"><mark>${esc(s.show)}</mark></div></div>
 <div class="cap">${esc(s.say)}</div>
 <div class="face"><img src="${faceSrc(s.face)}"></div>
 <div class="foot"><span>${esc(cfg.speaker.name)}</span><span>${esc(new URL(url).host)}</span></div></div>`, { waitUntil: 'networkidle' });
