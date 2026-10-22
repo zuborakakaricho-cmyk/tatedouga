@@ -2,6 +2,8 @@
 // 使い方: node make.mjs <記事のURL> [--config 設定.json] [--no-ai] [--no-images] [--redo] [--out 出力先]
 //   出力: out/<記事の名前>/<記事の名前>.mp4（--out で出力先を変えられる）
 //   台本.json がすでにあれば、それを使う（作り直すときは --redo）
+//   下書きなど公開前の記事は、本文のHTMLを保存して --html 本文.html [--title 題名] で渡す（URLは ?p=123 のプレビューURLでよい）
+//   記事に動画（<video>）があれば、その場面の間に早送りで流す（--no-videos で使わない）
 // 流れ: 記事を取る → 台本（Claude Code があれば頼む。無ければ見出しと太字から作る）→ 声（Macの say か VOICEVOX）→ 画面（Playwright）→ つなぐ（ffmpeg）
 // Mac と Windows（試験的）で動く。自分の記事のURLで使ってください。他人の記事を動画にするのは、著作権の面で問題になることがあります。
 import { execFileSync, spawnSync } from 'child_process';
@@ -28,13 +30,18 @@ for (const base of [here, join(here, '../../theme/eyecatch')]) {
 }
 if (!chromium) { console.error('Playwright がありません。このフォルダで npm install を実行してください'); process.exit(1); }
 
-const slug = (new URL(url).pathname.split('/').filter(Boolean).pop() || 'video').replace(/\.html?$/, '');
+// プレビューURL（?p=123）なら記事の番号を名前にする
+const slug = new URL(url).searchParams.get('p') || (new URL(url).pathname.split('/').filter(Boolean).pop() || 'video').replace(/\.html?$/, '');
 const out = join(resolve(opt('--out') || join(here, 'out')), slug); mkdirSync(join(out, 'scene'), { recursive: true });
 const decode = s => s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ');
 const strip = s => decode(s.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
 
 // 1. 記事を取る（WordPress なら公開API、それ以外はページの本文）
 async function getArticle() {
+	if (opt('--html')) {
+		const html = readFileSync(resolve(opt('--html')), 'utf8');
+		return { title: opt('--title') || strip((html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/) || html.match(/<title>([\s\S]*?)<\/title>/) || ['', slug])[1]), html };
+	}
 	const origin = new URL(url).origin;
 	try {
 		const r = await fetch(`${origin}/wp-json/wp/v2/posts?slug=${encodeURIComponent(slug)}&_fields=title,content`);
@@ -52,11 +59,17 @@ const { title, html } = await getArticle();
 console.log(`STEP 記事を取りました：${title}`);
 // 引用（blockquote）は、他の人の文章のことがあるので、台本の材料から外す
 const clean = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>|<blockquote[\s\S]*?<\/blockquote>/g, '');
-const images = [...clean.matchAll(/<img[^>]+>/g)].map(m => ({ src: (m[0].match(/src="([^"]+)"/) || [])[1], alt: decode((m[0].match(/alt="([^"]*)"/) || ['', ''])[1]), at: m.index }))
+// 画像と動画を、記事に出てくる順に並べる（動画の説明は、すぐ後の figcaption）
+const images = [...clean.matchAll(/<img[^>]+>|<video[\s\S]*?<\/video>/g)].map(m => {
+	if (m[0].startsWith('<img')) return { src: (m[0].match(/src="([^"]+)"/) || [])[1], alt: decode((m[0].match(/alt="([^"]*)"/) || ['', ''])[1]), at: m.index };
+	const cap = clean.slice(m.index + m[0].length, m.index + m[0].length + 600).match(/^\s*<figcaption[^>]*>([\s\S]*?)<\/figcaption>/);
+	return { src: (m[0].match(/src="([^"]+\.(?:mp4|mov|webm|m4v)[^"]*)"/i) || [])[1], alt: cap ? strip(cap[1]) : '', at: m.index, video: true };
+})
 	.filter(m => m.src && !/avatar|icon|logo|emoji/i.test(m.src))
+	.filter(m => !(m.video && args.includes('--no-videos')))
 	// 画像は、記事と同じサイトに置いてあるものだけ使う（他のサイトの画像は、動画に使ってよいかわからない）
 	.filter(m => { try { return new URL(m.src, url).host === new URL(url).host; } catch { return false; } })
-	.filter(() => !args.includes('--no-images'));
+	.filter(m => m.video || !args.includes('--no-images'));
 const skip = /よくある質問|まとめ|出典|参考|関連|目次|書いた人|プロフィール/;
 const sections = [...clean.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>([\s\S]*?)(?=<h2|$)/g)].map(m => {
 	const head = strip(m[1]);
@@ -90,7 +103,8 @@ function aiScript() {
 場面は5〜7個。1場面目は見る人の困りごと、最後は「詳しくはブログで」。
 数字・名前・手順は記事に書いてあるものだけを使う。記事に無いことは言わない。引用（他の人の文章）は使わない。
 使える画像（番号：説明）：
-${images.map((m, i) => `${i}：${m.alt.slice(0, 120)}`).join('\n')}
+${images.map((m, i) => `${i}：${m.video ? '【動画】' : ''}${m.alt.slice(0, 120)}`).join('\n')}
+${images.some(m => m.video) ? '【動画】と付いたものは、その場面のあいだ早送りで流れる。動画の中身を話す場面で1回使う（imgにその番号）。その場面の say は、動画で何が起きているかを話す。' : ''}
 題名：${title}
 本文：${text}`;
 	const res = execFileSync('claude', ['-p', prompt, '--output-format', 'text'], { encoding: 'utf8', maxBuffer: 1 << 24, shell: isWin });
@@ -149,7 +163,10 @@ body{font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Yu 
 .media{position:absolute;left:60px;right:60px;top:300px;bottom:600px;display:flex;flex-direction:column;gap:36px;align-items:center;justify-content:center}
 .media img{max-width:100%;max-height:640px;border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.12);background:#fff}
 .big{font-size:84px;font-weight:900;line-height:1.3;text-align:center}
-.media img+.big{font-size:62px}
+.media img+.big,.media .vidbox+.big{font-size:62px}
+.vidbox{display:flex;flex-direction:column;align-items:center;gap:14px}
+.vid{background:#000}
+.speed{font-size:30px;font-weight:700;color:var(--soft)}
 .big mark{background:linear-gradient(transparent 62%,var(--marker) 62%);color:inherit}
 .cap{position:absolute;left:60px;right:270px;bottom:190px;min-height:330px;display:flex;align-items:center;font-size:46px;font-weight:700;line-height:1.5;background:#fff;border:2px solid var(--rule);border-radius:18px;padding:26px 30px}
 .face{position:absolute;right:48px;bottom:190px;width:200px;height:200px;border-radius:50%;background:#FFE8D4;overflow:hidden}
@@ -162,10 +179,26 @@ const faceSrc = f => {
 	const type = p.endsWith('.svg') ? 'image/svg+xml' : p.endsWith('.png') ? 'image/png' : 'image/jpeg';
 	return `data:${type};base64,${readFileSync(p).toString('base64')}`;
 };
+// 動画の場面：動画を手元に落とし、長さと大きさを測って、早送りの倍率を決める（最大 video_max_speed 倍。超える分は頭から切る）
+const probe = f => execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height:format=duration', '-of', 'json', f], { encoding: 'utf8' });
+for (const [i, s] of scenes.entries()) {
+	const m = Number.isInteger(s.img) && images[s.img];
+	if (!m || !m.video) continue;
+	const file = join(out, 'scene', `${i}-src${(m.src.match(/\.(mp4|mov|webm|m4v)/i) || ['.mp4'])[0]}`);
+	if (!existsSync(file)) writeFileSync(file, Buffer.from(await (await fetch(new URL(m.src, url))).arrayBuffer()));
+	const j = JSON.parse(probe(file));
+	const W = j.streams[0].width, H = j.streams[0].height, dur = parseFloat(j.format.duration);
+	const w = Math.round(Math.min(960, 600 * W / H) / 2) * 2, h = Math.round(w * H / W / 2) * 2;
+	const speed = Math.min(Math.max(dur / s.sec, 1), cfg.video_max_speed || 6);
+	s.video = { file, w, h, speed, use: s.sec * speed };   // use＝元の動画から使う秒数
+	console.log(`STEP 動画 ${i + 1}場面目：${dur.toFixed(1)}秒 → ${s.sec.toFixed(1)}秒（${speed.toFixed(1)}倍速）`);
+}
+
 const b = await chromium.launch().catch(() => chromium.launch({ channel: 'chrome' }));
 const pg = await b.newPage({ viewport: { width: 1080, height: 1920 } });
 for (const [i, s] of scenes.entries()) {
-	const im = Number.isInteger(s.img) && images[s.img] ? `<img src="${new URL(images[s.img].src, url).href}">` : '';
+	const im = s.video ? `<div class="vidbox"><div class="vid" style="width:${s.video.w}px;height:${s.video.h}px"></div>${s.video.speed > 1.05 ? `<div class="speed">▶ ${s.video.speed.toFixed(1)}倍速</div>` : ''}</div>`
+		: Number.isInteger(s.img) && images[s.img] ? `<img src="${new URL(images[s.img].src, url).href}">` : '';
 	await pg.setContent(`<!doctype html><meta charset="utf-8"><style>${css}</style><div class="wrap">
 <div class="top"><b>${i + 1}/${scenes.length}</b>${esc(cfg.site || '')}</div>
 <div class="title">${esc(main)}</div>
@@ -173,6 +206,7 @@ for (const [i, s] of scenes.entries()) {
 <div class="cap">${esc(s.say)}</div>
 <div class="face"><img src="${faceSrc(s.face)}"></div>
 <div class="foot"><span>${esc(cfg.speaker.name)}</span><span>${esc(new URL(url).host)}</span></div></div>`, { waitUntil: 'networkidle' });
+	if (s.video) Object.assign(s.video, await pg.$eval('.vid', e => { const r = e.getBoundingClientRect(); return { x: Math.round(r.x), y: Math.round(r.y) }; }));
 	await pg.screenshot({ path: join(out, 'scene', `${i}.png`) });
 	console.log(`STEP 画面 ${i + 1}/${scenes.length}`);
 }
@@ -182,8 +216,15 @@ await b.close();
 const parts = [];
 for (const [i, s] of scenes.entries()) {
 	const v = join(out, 'scene', `${i}.mp4`);
-	execFileSync('ffmpeg', ['-v', 'error', '-y', '-loop', '1', '-t', String(s.sec), '-i', join(out, 'scene', `${i}.png`), '-i', join(out, 'scene', `${i}.wav`),
-		'-af', 'apad', '-t', String(s.sec), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', '30', '-c:a', 'aac', '-ar', '44100', v]);
+	const enc = ['-af', 'apad', '-t', String(s.sec), '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-r', '30', '-c:a', 'aac', '-ar', '44100', v];
+	if (s.video) {   // 画面の黒い枠の位置に、早送りした動画を重ねる（動画が短ければ最後の絵で止める）
+		const { file, w, h, x, y, speed, use } = s.video;
+		execFileSync('ffmpeg', ['-v', 'error', '-y', '-loop', '1', '-t', String(s.sec), '-i', join(out, 'scene', `${i}.png`), '-t', String(use), '-i', file, '-i', join(out, 'scene', `${i}.wav`),
+			'-filter_complex', `[1:v]setpts=(PTS-STARTPTS)/${speed},fps=30,scale=${w}:${h},setsar=1,tpad=stop_mode=clone:stop_duration=${s.sec}[m];[0:v][m]overlay=${x}:${y}:shortest=0,format=yuv420p[v]`,
+			'-map', '[v]', '-map', '2:a', ...enc]);
+	} else {
+		execFileSync('ffmpeg', ['-v', 'error', '-y', '-loop', '1', '-t', String(s.sec), '-i', join(out, 'scene', `${i}.png`), '-i', join(out, 'scene', `${i}.wav`), ...enc]);
+	}
 	parts.push(`file '${v}'`);
 }
 writeFileSync(join(out, 'list.txt'), parts.join('\n'));
