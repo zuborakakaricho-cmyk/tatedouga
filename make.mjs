@@ -137,7 +137,10 @@ async function speak(text, file) {
 		const wav = Buffer.from(await (await fetch(`${base}/synthesis?speaker=${sp}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) })).arrayBuffer());
 		writeFileSync(file, wav);
 	} else {
-		execFileSync('say', ['-v', v.name || 'Kyoko', '-r', String(v.rate || 205), '-o', file, '--file-format=WAVE', '--data-format=LEI16@22050', text]);
+		// 文は -f でファイルから渡す（「-l ja」のように - で始まる文がオプションと読まれて落ちるため）
+		const txt = file + '.txt';
+		writeFileSync(txt, text);
+		execFileSync('say', ['-v', v.name || 'Kyoko', '-r', String(v.rate || 205), '-o', file, '--file-format=WAVE', '--data-format=LEI16@22050', '-f', txt]);
 	}
 	let sec = NaN;
 	try { sec = parseFloat(execFileSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', file], { encoding: 'utf8' })); } catch {}
