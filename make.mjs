@@ -7,10 +7,12 @@
 // 流れ: 記事を取る → 台本（Claude Code があれば頼む。無ければ見出しと太字から作る）→ 声（Macの say か VOICEVOX）→ 画面（Playwright）→ つなぐ（ffmpeg）
 // Mac と Windows（試験的）で動く。自分の記事のURLで使ってください。他人の記事を動画にするのは、著作権の面で問題になることがあります。
 import { execFileSync, spawnSync } from 'child_process';
+import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import { dirname, isAbsolute, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import { slugOf } from './slug.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -30,8 +32,7 @@ for (const base of [here, join(here, '../../theme/eyecatch')]) {
 }
 if (!chromium) { console.error('Playwright がありません。このフォルダで npm install を実行してください'); process.exit(1); }
 
-// プレビューURL（?p=123）なら記事の番号を名前にする
-const slug = new URL(url).searchParams.get('p') || (new URL(url).pathname.split('/').filter(Boolean).pop() || 'video').replace(/\.html?$/, '');
+const slug = slugOf(url);
 const out = join(resolve(opt('--out') || join(here, 'out')), slug); mkdirSync(join(out, 'scene'), { recursive: true });
 const decode = s => s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n)).replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&nbsp;/g, ' ');
 const strip = s => decode(s.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
@@ -190,8 +191,14 @@ const probe = f => execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v
 for (const [i, s] of scenes.entries()) {
 	const m = Number.isInteger(s.img) && images[s.img];
 	if (!m || !m.video) continue;
-	const file = join(out, 'scene', `${i}-src${(m.src.match(/\.(mp4|mov|webm|m4v)/i) || ['.mp4'])[0]}`);
-	if (!existsSync(file)) writeFileSync(file, Buffer.from(await (await fetch(new URL(m.src, url))).arrayBuffer()));
+	// 手元の名前は動画のURLから決める（場面の番号で決めると、台本を直して別の動画になっても古い動画を使ってしまう）
+	const src = new URL(m.src, url).href;
+	const file = join(out, 'scene', `src-${createHash('sha1').update(src).digest('hex').slice(0, 12)}${(m.src.match(/\.(mp4|mov|webm|m4v)/i) || ['.mp4'])[0]}`);
+	if (!existsSync(file)) {
+		const r = await fetch(src);
+		if (!r.ok) throw new Error(`記事の動画を取れませんでした（${r.status}）：${src}`);
+		writeFileSync(file, Buffer.from(await r.arrayBuffer()));
+	}
 	const j = JSON.parse(probe(file));
 	const W = j.streams[0].width, H = j.streams[0].height, dur = parseFloat(j.format.duration);
 	// 横長は幅いっぱい（高さ600まで）。縦長は高さを取って左に置き、要点は右に並べる

@@ -113,7 +113,7 @@ $('faceFile').onchange = e => {
 	const rd = new FileReader(); rd.onload = () => { faceData = rd.result; $('faceImg').src = faceData; }; rd.readAsDataURL(f);
 };
 $('save').onclick = async () => {
-	const r = await (await fetch('/api/config', { method: 'POST', body: JSON.stringify({ name: $('name').value, first_person: $('fp').value, persona: $('persona').value, site: $('site').value, my_sites: $('mysites').value, voice: { engine: 'say', name: $('voice').value }, face: faceData }) })).json();
+	const r = await (await fetch('/api/config', { method: 'POST', body: JSON.stringify({ name: $('name').value, first_person: $('fp').value, persona: $('persona').value, site: $('site').value, my_sites: $('mysites').value, voice: { name: $('voice').value }, face: faceData }) })).json();
 	$('saved').textContent = r.ok ? '保存しました' : r.error; faceData = null;
 };
 

@@ -5,6 +5,7 @@ import { createServer } from 'http';
 import { createReadStream, existsSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join, normalize } from 'path';
 import { fileURLToPath } from 'url';
+import { slugOf } from './slug.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 8742);
@@ -17,7 +18,6 @@ const send = (res, code, body, type = 'application/json; charset=utf-8') => {
 	res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 };
 const readBody = req => new Promise(r => { let d = ''; req.on('data', c => (d += c)); req.on('end', () => r(d ? JSON.parse(d) : {})); });
-const slugOf = u => (new URL(u).pathname.split('/').filter(Boolean).pop() || 'video').replace(/\.html?$/, '');
 
 function voices() {
 	if (process.platform === 'win32') {   // Windows に入っている読み上げの声
@@ -48,8 +48,8 @@ createServer(async (req, res) => {
 				writeFileSync(join(here, f), Buffer.from(m[2], 'base64'));
 				cfg.speaker.faces = { normal: f, komari: f, doya: f };
 			}
-			cfg.voice = { ...cfg.voice, ...(b.voice || {}) };
-			if (process.platform === 'win32' && b.voice?.name) { cfg.voice.windows_name = b.voice.name; delete cfg.voice.name; cfg.voice.engine = 'auto'; }
+			cfg.voice = { ...cfg.voice, ...(b.voice || {}) };   // 画面から来るのは声の名前だけ。engine（say・voicevox）は config.json のまま
+			if (process.platform === 'win32' && b.voice?.name) { cfg.voice.windows_name = b.voice.name; delete cfg.voice.name; }
 			if (b.accent) cfg.colors.accent = b.accent;
 			writeFileSync(cfgFile, JSON.stringify(cfg, null, 2));
 			return send(res, 200, { ok: true, cfg });
