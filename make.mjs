@@ -109,7 +109,8 @@ ${images.map((m, i) => `${i}：${m.video ? '【動画】' : ''}${m.alt.slice(0, 
 ${images.some(m => m.video) ? '【動画】と付いたものは、その場面のあいだ早送りで流れる。【動画】が何本あっても、1本ずつ別の場面で使う（imgにその番号。同じ動画を2回使わない）。その場面の say は、動画で何が起きているかを話す。' : ''}
 題名：${title}
 本文：${text}`;
-	const res = execFileSync('claude', ['-p', prompt, '--output-format', 'text'], { encoding: 'utf8', maxBuffer: 1 << 24, shell: isWin });
+	// 頼む文は標準入力で渡す（Windows は cmd.exe を通るので、引数だと改行で切れたり、記事の & | > が命令として読まれたりする）
+	const res = execFileSync('claude', ['-p', '--output-format', 'text'], { input: prompt, encoding: 'utf8', maxBuffer: 1 << 24, shell: isWin });
 	const j = JSON.parse(res.slice(res.indexOf('{'), res.lastIndexOf('}') + 1));
 	return { ...j, by: 'claude' };
 }

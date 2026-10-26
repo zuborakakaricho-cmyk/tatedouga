@@ -17,7 +17,10 @@ const send = (res, code, body, type = 'application/json; charset=utf-8') => {
 	res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
 	res.end(typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
 };
-const readBody = req => new Promise(r => { let d = ''; req.on('data', c => (d += c)); req.on('end', () => r(d ? JSON.parse(d) : {})); });
+const readBody = req => new Promise((r, j) => { let d = ''; req.on('data', c => (d += c)); req.on('end', () => { try { r(d ? JSON.parse(d) : {}); } catch (e) { j(e); } }); });
+// ほかのWebサイトから、この画面の設定を書き換えたり動画を作らせたりされないように、宛先（Host）と送り元（Origin）を確かめる
+const mine = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
+const fromOutside = req => !mine.has(req.headers.host) || (req.method !== 'GET' && req.headers.origin !== undefined && !mine.has(req.headers.origin.replace(/^https?:\/\//, '')));
 
 function voices() {
 	if (process.platform === 'win32') {   // Windows に入っている読み上げの声
@@ -31,6 +34,7 @@ function voices() {
 createServer(async (req, res) => {
 	const u = new URL(req.url, `http://127.0.0.1:${PORT}`);
 	try {
+		if (fromOutside(req)) return send(res, 403, { error: 'この画面の外からは使えません' });
 		if (u.pathname === '/') return send(res, 200, readFileSync(join(here, 'ui', 'index.html')), 'text/html; charset=utf-8');
 		if (u.pathname === '/api/config' && req.method === 'GET') return send(res, 200, { cfg: loadCfg(), voices: voices() });
 		if (u.pathname === '/api/config' && req.method === 'POST') {
